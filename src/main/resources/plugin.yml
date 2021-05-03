@@ -1,0 +1,43 @@
+﻿name: Teamup
+version: 1.0.0
+depend: []
+softdepend: []
+loadbefore: []
+api-version: 1.8
+
+main: org.yuxuan.teamup.PluginMain
+
+commands:
+  teamupopen:
+    description: Open teamup teleportation menu
+    aliases: tuo
+    permission: teamup.open
+    usage: /teamupopen [player]
+  teamupcancel:
+    description: Cancel teamup teleportation request
+    aliases: tuc
+    permission: teamup.cancel
+    usage: /teamupcancel
+  teamupaccept:
+    description: Accept teamup teleportation request
+    aliases: tua
+    permission: teamup.accept
+    usage: /teamupaccept
+  teamupdecline:
+    description: Decline teamup teleportation request
+    aliases: tud
+    permission: teamup.decline
+    usage: /teamupdecline
+permissions:
+  teamup.open:
+    description: Allows open teamup teleportation menu.
+    default: op
+  teamup.cancel:
+    description: Allows cancel teamup teleportation request.
+    default: true
+  teamup.accept:
+    description: Allows accept teamup teleportation request.
+    default: true
+  teamup.decline:
+    description: Allows decline teamup teleportation request.
+    default: true
