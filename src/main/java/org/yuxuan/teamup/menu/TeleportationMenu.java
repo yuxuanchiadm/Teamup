@@ -1,9 +1,14 @@
 package org.yuxuan.teamup.menu;
 
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -14,12 +19,76 @@ public final class TeleportationMenu extends SingleDisplayMenu {
 	private static final int SINGLE_PAGE_MAX_TARGET_COUNT = SINGLE_LINE_MAX_TARGET_COUNT * 6;
 
 	private final List<Player> targets;
+	private final Queue<String> pendingIcons;
+	private volatile boolean loading;
+	private volatile boolean closing;
+	private volatile boolean updating;
+
 	private int page;
 
 	public TeleportationMenu(Player player, List<Player> targets) {
 		super(player);
 		this.targets = targets;
+		this.pendingIcons = targets.stream().map(Player::getName).collect(Collectors.toCollection(ConcurrentLinkedQueue::new));
+		this.loading = false;
+		this.closing = false;
+		this.updating = false;
 		updatePage();
+	}
+
+	@Override
+	protected boolean onMenuOpening(Player player) {
+		loading = true;
+		player.sendMessage(PluginMain.PLUGIN_MSG_PREFIX + "正在加载玩家头像...");
+		runTaskAsync(() -> {
+			Inventory iconLoader = new DummyInventoryHolder().getInventory();
+			String icon;
+			while (!closing && (icon = pendingIcons.peek()) != null) {
+				ItemStack targetIcon = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
+				SkullMeta targetIconMeta = (SkullMeta) targetIcon.getItemMeta();
+				targetIconMeta.setOwner(icon);
+				targetIcon.setItemMeta(targetIconMeta);
+				iconLoader.setItem(0, targetIcon);
+				pendingIcons.remove();
+				updatePageSync();
+			}
+			runTaskSync(() -> {
+				if (closing) player.sendMessage(PluginMain.PLUGIN_MSG_PREFIX + "玩家头像加载被中断！");
+				else player.sendMessage(PluginMain.PLUGIN_MSG_PREFIX + "玩家头像加载完毕！");
+				loading = false;
+				closing = false;
+			});
+		});
+		return super.onMenuOpening(player);
+	}
+
+	@Override
+	protected void onMenuClosing(Player player) {
+		if (this.loading) {
+			this.closing = true;
+			player.sendMessage(PluginMain.PLUGIN_MSG_PREFIX + "正在尝试中断玩家头像加载...");
+		}
+		super.onMenuClosing(player);
+	}
+
+	private void runTaskAsync(Runnable runnable) {
+		PluginMain.getInstance().getServer().getScheduler().runTaskAsynchronously(PluginMain.getInstance(), runnable);
+	}
+
+	private void runTaskSync(Runnable runnable) {
+		PluginMain.getInstance().getServer().getScheduler().runTask(PluginMain.getInstance(), runnable);
+	}
+
+	private void updatePageSync() {
+		if (PluginMain.getInstance().getServer().isPrimaryThread()) {
+			updating = false;
+			if (closing) return;
+			updatePage();
+		} else {
+			if (closing || updating) return;
+			updating = true;
+			runTaskSync(this::updatePageSync);
+		}
 	}
 
 	private void updatePage() {
@@ -79,15 +148,17 @@ public final class TeleportationMenu extends SingleDisplayMenu {
 	public void drawTargetIcon(Player target, int x, int y) {
 		ItemStack targetIcon = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
 		SkullMeta targetIconMeta = (SkullMeta) targetIcon.getItemMeta();
-		targetIconMeta.setOwner(target.getName());
-		targetIconMeta.setDisplayName(target.getDisplayName());
+		if (!pendingIcons.contains(target.getName())) {
+			targetIconMeta.setOwner(target.getName());
+		}
+		targetIconMeta.setDisplayName(target.getName());
 		targetIcon.setItemMeta(targetIconMeta);
-		addButton(x, y, targetIcon, event -> {
+		setButton(x, y, targetIcon, event -> {
 			Player player = event.getPlayer();
 			PluginMain.getInstance().teleportation.sendRequest(player, target);
-			closeMenu();
 		});
 	}
+
 
 	public int getCurrentPageYSize() {
 		int itemCount = targets.size();
@@ -137,3 +208,17 @@ public final class TeleportationMenu extends SingleDisplayMenu {
 		super.displayMenu();
 	}
 }
+
+final class DummyInventoryHolder implements InventoryHolder {
+	private final Inventory inventory;
+
+	public DummyInventoryHolder() {
+		this.inventory = PluginMain.getInstance().getServer().createInventory(this, 9);
+	}
+
+	@Override
+	public Inventory getInventory() {
+		return inventory;
+	}
+}
+
